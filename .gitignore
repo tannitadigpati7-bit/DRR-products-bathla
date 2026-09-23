@@ -1,3 +1,6 @@
 *.csv
 *.xlsx
 .env
+credentials.json
+*serviceaccount*.json
+bathla-marketplace-monitor-*.json
