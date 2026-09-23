@@ -4,3 +4,4 @@
 credentials.json
 *serviceaccount*.json
 bathla-marketplace-monitor-*.json
+logs/
