@@ -158,21 +158,15 @@ def main():
             oo_tick = "Y" if item_id in oo_items else ""
             calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, oo_tick])
 
-    sku_rows = [["Item ID", "Category", "Simple Name"]] + [list(t) for t in SKU_MASTER]
-
     print("Writing Bathla_DRR_Tracker...")
     tracker = gc.open_by_key(TRACKER)
-
-    sku_ws = tracker.worksheet("SKU_Master")
-    sku_ws.clear()
-    sku_ws.update(values=sku_rows, range_name="A1")
 
     calc_ws = tracker.worksheet(TRACK_TAB)
     calc_ws.clear()
     calc_ws.update(values=calc_rows, range_name="A1", value_input_option="USER_ENTERED")
     calc_ws.freeze(rows=2)
 
-    print(f"Done. Wrote {len(sku_rows) - 1} SKUs, {len(calc_rows) - 1} SKU x city rows.")
+    print(f"Done. Wrote {len(SKU_MASTER)} SKUs, {len(calc_rows) - 2} SKU x city rows.")
 
 
 if __name__ == "__main__":
