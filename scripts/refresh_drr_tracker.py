@@ -133,7 +133,11 @@ def main():
     # ---- build output rows ----
     # DOC is a live formula (Stock / DRR), not a python-computed value, so it stays
     # correct if DRR or Stock ever gets hand-edited in the sheet.
-    calc_rows = [["Item ID", "Category", "SKU", "City", "DRR (units/day)", "Stock", "DOC (days)", "In Transit", "Open PO"]]
+    calc_rows = [[
+        "Item ID", "Category", "SKU", "City",
+        f"DRR (units/day, last {WINDOW_DAYS}d)", "Stock",
+        f"DOC (days, based on last {WINDOW_DAYS}d DRR)", "In Transit", "Open PO",
+    ]]
     row_num = 1  # header is row 1; data starts at row 2
     for item_id, category, name in SKU_MASTER:
         for city in CITIES:
@@ -141,7 +145,7 @@ def main():
             units = sales.get((item_id, city), 0)
             drr = round(units / WINDOW_DAYS, 2)
             st = stock.get((item_id, city), 0)
-            doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales", 0), ROUND(F{row_num}/E{row_num}, 1))'
+            doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", 0), ROUND(F{row_num}/E{row_num}, 1))'
             it_tick = "Y" if item_id in it_items else ""
             oo_tick = "Y" if item_id in oo_items else ""
             calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, oo_tick])
