@@ -133,12 +133,20 @@ def main():
     # ---- build output rows ----
     # DOC is a live formula (Stock / DRR), not a python-computed value, so it stays
     # correct if DRR or Stock ever gets hand-edited in the sheet.
-    calc_rows = [[
-        "Item ID", "Category", "SKU", "City",
-        f"DRR (units/day, last {WINDOW_DAYS}d)", "Stock",
-        f"DOC (days, based on last {WINDOW_DAYS}d DRR)", "In Transit", "Open PO",
-    ]]
-    row_num = 1  # header is row 1; data starts at row 2
+    refreshed_note = (
+        f"Last refreshed: {datetime.now().strftime('%d-%b-%Y %H:%M')} | "
+        f"DRR window: last {WINDOW_DAYS} days | "
+        f"Source: Blinkit_Raw, Blinkit_Inventory, Blinkit Pending, Blinkit - In Transit"
+    )
+    calc_rows = [
+        [refreshed_note],
+        [
+            "Item ID", "Category", "SKU", "City",
+            f"DRR (units/day, last {WINDOW_DAYS}d)", "Stock",
+            f"DOC (days, based on last {WINDOW_DAYS}d DRR)", "In Transit", "Open PO",
+        ],
+    ]
+    row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
     for item_id, category, name in SKU_MASTER:
         for city in CITIES:
             row_num += 1
@@ -162,11 +170,7 @@ def main():
     calc_ws = tracker.worksheet(TRACK_TAB)
     calc_ws.clear()
     calc_ws.update(values=calc_rows, range_name="A1", value_input_option="USER_ENTERED")
-    calc_ws.freeze(rows=1)
-    calc_ws.update(
-        values=[[f"Last refreshed: {datetime.now().strftime('%d-%b-%Y %H:%M')} | DRR window: last {WINDOW_DAYS} days | Source: Blinkit_Raw, Blinkit_Inventory, Blinkit Pending, Blinkit - In Transit"]],
-        range_name=f"A{len(calc_rows) + 2}",
-    )
+    calc_ws.freeze(rows=2)
 
     print(f"Done. Wrote {len(sku_rows) - 1} SKUs, {len(calc_rows) - 1} SKU x city rows.")
 
