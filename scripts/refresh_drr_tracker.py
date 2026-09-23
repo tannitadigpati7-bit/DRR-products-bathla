@@ -191,8 +191,8 @@ def main():
             doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", 0), ROUND(F{row_num}/E{row_num}, 1))'
             it_q = it_qty.get((item_id, city), 0)
             oo_q = oo_qty.get((item_id, city), 0)
-            it_tick = "Y" if it_q > 0 else ""
-            oo_tick = "Y" if oo_q > 0 else ""
+            it_tick = "Y" if it_q > 0 else "N"
+            oo_tick = "Y" if oo_q > 0 else "N"
             calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q])
 
     print("Writing Bathla_DRR_Tracker...")
