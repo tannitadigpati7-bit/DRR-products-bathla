@@ -22,6 +22,31 @@ CITY_MAP = {
 }
 CITIES = ["BLR", "HYD", "DEL", "MUM"]
 WINDOW_DAYS = 7
+
+# Blinkit Pending / In Transit "Location" is a warehouse name, not a clean city.
+# Matched by keyword -- NCR feeder hubs (Faridabad, Noida, Kundli, Gurgaon) roll
+# into DEL, Bhiwandi (Mumbai's main feeder hub) rolls into MUM. Anything not
+# matched belongs to a warehouse outside these 4 cities and is left out.
+LOCATION_CITY_KEYWORDS = [
+    ("bengaluru", "BLR"),
+    ("hyderabad", "HYD"),
+    ("mumbai", "MUM"),
+    ("bhiwandi", "MUM"),
+    ("faridabad", "DEL"),
+    ("noida", "DEL"),
+    ("kundli", "DEL"),
+    ("gurgaon", "DEL"),
+    ("gurugram", "DEL"),
+    ("delhi", "DEL"),
+]
+
+
+def location_to_city(loc):
+    loc_l = (loc or "").strip().lower()
+    for kw, city in LOCATION_CITY_KEYWORDS:
+        if kw in loc_l:
+            return city
+    return None
 PLATFORM = "Blinkit"
 TRACK_TAB = f"{PLATFORM}_DRR_Track"
 
@@ -106,14 +131,16 @@ def main():
     print("Reading Q.Com Pending & In Transit...")
     pending_book = gc.open_by_key(QCOM_PENDING)
 
-    def qty_by_item(ws_title, status_filter=None):
-        """Sum Quantity Outstanding per Item Code. Not split by city -- the
-        source sheets don't reliably tag in-transit/pending rows with a city."""
+    def qty_by_item_city(ws_title, status_filter=None):
+        """Sum Quantity Outstanding per (Item Code, City), matched from the
+        Location column. Rows whose Location doesn't match one of the 4
+        cities are skipped and counted separately for visibility."""
         ws = pending_book.worksheet(ws_title)
         vals = ws.get_all_values()
         h, rws = vals[0], vals[1:]
         ix = {c.strip(): i for i, c in enumerate(h)}
         out = defaultdict(int)
+        skipped_qty = 0
         for r in rws:
             if len(r) <= ix["Quantity Outstanding"]:
                 continue
@@ -126,11 +153,16 @@ def main():
                 continue
             if status_filter and r[ix.get("PO Status", -1)].strip() not in status_filter:
                 continue
-            out[item_id] += qty
+            city = location_to_city(r[ix.get("Location", -1)] if ix.get("Location", -1) >= 0 else "")
+            if not city:
+                skipped_qty += qty
+                continue
+            out[(item_id, city)] += qty
+        print(f"  {ws_title}: {skipped_qty} units in warehouses outside BLR/HYD/DEL/MUM, not counted")
         return out
 
-    oo_qty = qty_by_item("Blinkit Pending", status_filter={"Active"})
-    it_qty = qty_by_item("Blinkit - In Transit")
+    oo_qty = qty_by_item_city("Blinkit Pending", status_filter={"Active"})
+    it_qty = qty_by_item_city("Blinkit - In Transit")
 
     # ---- build output rows ----
     # DOC is a live formula (Stock / DRR), not a python-computed value, so it stays
@@ -157,8 +189,8 @@ def main():
             drr = round(units / WINDOW_DAYS, 2)
             st = stock.get((item_id, city), 0)
             doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", 0), ROUND(F{row_num}/E{row_num}, 1))'
-            it_q = it_qty.get(item_id, 0)
-            oo_q = oo_qty.get(item_id, 0)
+            it_q = it_qty.get((item_id, city), 0)
+            oo_q = oo_qty.get((item_id, city), 0)
             it_tick = "Y" if it_q > 0 else ""
             oo_tick = "Y" if oo_q > 0 else ""
             calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q])
