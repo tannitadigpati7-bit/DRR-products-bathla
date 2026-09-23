@@ -106,12 +106,14 @@ def main():
     print("Reading Q.Com Pending & In Transit...")
     pending_book = gc.open_by_key(QCOM_PENDING)
 
-    def items_with_qty(ws_title, status_filter=None):
+    def qty_by_item(ws_title, status_filter=None):
+        """Sum Quantity Outstanding per Item Code. Not split by city -- the
+        source sheets don't reliably tag in-transit/pending rows with a city."""
         ws = pending_book.worksheet(ws_title)
         vals = ws.get_all_values()
         h, rws = vals[0], vals[1:]
         ix = {c.strip(): i for i, c in enumerate(h)}
-        out = set()
+        out = defaultdict(int)
         for r in rws:
             if len(r) <= ix["Quantity Outstanding"]:
                 continue
@@ -124,11 +126,11 @@ def main():
                 continue
             if status_filter and r[ix.get("PO Status", -1)].strip() not in status_filter:
                 continue
-            out.add(item_id)
+            out[item_id] += qty
         return out
 
-    oo_items = items_with_qty("Blinkit Pending", status_filter={"Active"})
-    it_items = items_with_qty("Blinkit - In Transit")
+    oo_qty = qty_by_item("Blinkit Pending", status_filter={"Active"})
+    it_qty = qty_by_item("Blinkit - In Transit")
 
     # ---- build output rows ----
     # DOC is a live formula (Stock / DRR), not a python-computed value, so it stays
@@ -143,7 +145,8 @@ def main():
         [
             "Item ID", "Category", "SKU", "City",
             f"DRR (units/day, last {WINDOW_DAYS}d)", "Stock",
-            f"DOC (days, based on last {WINDOW_DAYS}d DRR)", "In Transit", "Open PO",
+            f"DOC (days, based on last {WINDOW_DAYS}d DRR)",
+            "In Transit", "Qty", "Open PO", "Qty",
         ],
     ]
     row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
@@ -154,9 +157,11 @@ def main():
             drr = round(units / WINDOW_DAYS, 2)
             st = stock.get((item_id, city), 0)
             doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", 0), ROUND(F{row_num}/E{row_num}, 1))'
-            it_tick = "Y" if item_id in it_items else ""
-            oo_tick = "Y" if item_id in oo_items else ""
-            calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, oo_tick])
+            it_q = it_qty.get(item_id, 0)
+            oo_q = oo_qty.get(item_id, 0)
+            it_tick = "Y" if it_q > 0 else ""
+            oo_tick = "Y" if oo_q > 0 else ""
+            calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q])
 
     print("Writing Bathla_DRR_Tracker...")
     tracker = gc.open_by_key(TRACKER)
