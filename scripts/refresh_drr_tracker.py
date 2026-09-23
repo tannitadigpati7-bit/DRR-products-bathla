@@ -22,6 +22,8 @@ CITY_MAP = {
 }
 CITIES = ["BLR", "HYD", "DEL", "MUM"]
 WINDOW_DAYS = 7
+PLATFORM = "Blinkit"
+TRACK_TAB = f"{PLATFORM}_DRR_Track"
 
 SKU_MASTER = [
     ("10160151", "AL - Ladder", "Advance 5 Step (Orange)"),
@@ -129,7 +131,7 @@ def main():
     it_items = items_with_qty("Blinkit - In Transit")
 
     # ---- build output rows ----
-    calc_rows = [["Platform", "Item ID", "Category", "SKU", "City", "DRR (units/day)", "Stock", "DOC (days)", "In Transit", "Open PO"]]
+    calc_rows = [["Item ID", "Category", "SKU", "City", "DRR (units/day)", "Stock", "DOC (days)", "In Transit", "Open PO"]]
     for item_id, category, name in SKU_MASTER:
         for city in CITIES:
             units = sales.get((item_id, city), 0)
@@ -143,7 +145,7 @@ def main():
                 doc = 0
             it_tick = "Y" if item_id in it_items else ""
             oo_tick = "Y" if item_id in oo_items else ""
-            calc_rows.append(["Blinkit", item_id, category, name, city, drr, st, doc, it_tick, oo_tick])
+            calc_rows.append([item_id, category, name, city, drr, st, doc, it_tick, oo_tick])
 
     sku_rows = [["Item ID", "Category", "Simple Name"]] + [list(t) for t in SKU_MASTER]
 
@@ -154,7 +156,7 @@ def main():
     sku_ws.clear()
     sku_ws.update(values=sku_rows, range_name="A1")
 
-    calc_ws = tracker.worksheet("Calc")
+    calc_ws = tracker.worksheet(TRACK_TAB)
     calc_ws.clear()
     calc_ws.update(values=calc_rows, range_name="A1")
     calc_ws.freeze(rows=1)
