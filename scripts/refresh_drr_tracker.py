@@ -131,21 +131,20 @@ def main():
     it_items = items_with_qty("Blinkit - In Transit")
 
     # ---- build output rows ----
+    # DOC is a live formula (Stock / DRR), not a python-computed value, so it stays
+    # correct if DRR or Stock ever gets hand-edited in the sheet.
     calc_rows = [["Item ID", "Category", "SKU", "City", "DRR (units/day)", "Stock", "DOC (days)", "In Transit", "Open PO"]]
+    row_num = 1  # header is row 1; data starts at row 2
     for item_id, category, name in SKU_MASTER:
         for city in CITIES:
+            row_num += 1
             units = sales.get((item_id, city), 0)
             drr = round(units / WINDOW_DAYS, 2)
             st = stock.get((item_id, city), 0)
-            if drr > 0:
-                doc = round(st / drr, 1)
-            elif st > 0:
-                doc = "No sales"
-            else:
-                doc = 0
+            doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales", 0), ROUND(F{row_num}/E{row_num}, 1))'
             it_tick = "Y" if item_id in it_items else ""
             oo_tick = "Y" if item_id in oo_items else ""
-            calc_rows.append([item_id, category, name, city, drr, st, doc, it_tick, oo_tick])
+            calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, oo_tick])
 
     sku_rows = [["Item ID", "Category", "Simple Name"]] + [list(t) for t in SKU_MASTER]
 
@@ -158,7 +157,7 @@ def main():
 
     calc_ws = tracker.worksheet(TRACK_TAB)
     calc_ws.clear()
-    calc_ws.update(values=calc_rows, range_name="A1")
+    calc_ws.update(values=calc_rows, range_name="A1", value_input_option="USER_ENTERED")
     calc_ws.freeze(rows=1)
     calc_ws.update(
         values=[[f"Last refreshed: {datetime.now().strftime('%d-%b-%Y %H:%M')} | DRR window: last {WINDOW_DAYS} days | Source: Blinkit_Raw, Blinkit_Inventory, Blinkit Pending, Blinkit - In Transit"]],
