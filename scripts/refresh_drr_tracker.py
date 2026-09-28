@@ -245,6 +245,11 @@ def main():
     calc_ws.clear()
     calc_ws.update(values=calc_rows, range_name="A1", value_input_option="USER_ENTERED")
     calc_ws.freeze(rows=2)
+    # Re-apply the filter to the full current range each run -- otherwise it
+    # stays pinned to whatever row count existed when it was first created,
+    # and silently hides newer rows from the filter dropdowns.
+    calc_ws.clear_basic_filter()
+    calc_ws.set_basic_filter()
 
     print(f"Done. Wrote {len(SKU_MASTER)} SKUs x {len(cities_sorted)} cities = {len(calc_rows) - 2} rows.")
 
