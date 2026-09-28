@@ -1,10 +1,15 @@
 """
 Pull real Blinkit data from the Q.Com source sheets, compute DRR/DOC/IT/OO
-per SKU x city, and write it into Bathla_DRR_Tracker (SKU_Master + Calc).
+per SKU x city, and write it into Bathla_DRR_Tracker (Blinkit_DRR_Track).
+
+Cities are derived directly from the source data (Blinkit_Raw's own
+City_Name-Mapped column), not hand-listed -- Blinkit sells in ~250 towns,
+and hardcoding that list would go stale immediately.
 
 Run manually for now: python scripts/refresh_drr_tracker.py
 Later: wire this into a scheduled trigger for daily auto-refresh.
 """
+import re
 import gspread
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -14,41 +19,41 @@ QCOM_MASTER = "1GxVuEY7YTM1hFjEYp2bNizKLfa48P4FE-1IwO2rLhpM"
 QCOM_PENDING = "1LXrMlXDH1TB2uoBvA-G1sAh83mu4FrgYOdthyFyP_fE"
 TRACKER = "1JAyP6i4UmtlgfMTHD6FFe040iQGPnN1D6Oo9l35c5tg"
 
-CITY_MAP = {
-    "Bengaluru": "BLR",
-    "Delhi NCR": "DEL",
-    "Hyderabad": "HYD",
-    "Mumbai": "MUM",
-}
-CITIES = ["BLR", "HYD", "DEL", "MUM"]
 WINDOW_DAYS = 7
-
-# Blinkit Pending / In Transit "Location" is a warehouse name, not a clean city.
-# Matched by keyword -- NCR feeder hubs (Faridabad, Noida, Kundli, Gurgaon) roll
-# into DEL, Bhiwandi (Mumbai's main feeder hub) rolls into MUM. Anything not
-# matched belongs to a warehouse outside these 4 cities and is left out.
-LOCATION_CITY_KEYWORDS = [
-    ("bengaluru", "BLR"),
-    ("hyderabad", "HYD"),
-    ("mumbai", "MUM"),
-    ("bhiwandi", "MUM"),
-    ("faridabad", "DEL"),
-    ("noida", "DEL"),
-    ("kundli", "DEL"),
-    ("gurgaon", "DEL"),
-    ("gurugram", "DEL"),
-    ("delhi", "DEL"),
-]
-
-
-def location_to_city(loc):
-    loc_l = (loc or "").strip().lower()
-    for kw, city in LOCATION_CITY_KEYWORDS:
-        if kw in loc_l:
-            return city
-    return None
 PLATFORM = "Blinkit"
 TRACK_TAB = f"{PLATFORM}_DRR_Track"
+
+# Blinkit's own City_Name-Mapped column already spells most cities consistently,
+# but a handful of the ~250 towns are the same place spelled two ways
+# (casing, underscore vs space, or a "(State)" qualifier). Fold those into one
+# canonical name; everything else is trusted as-is rather than hand-listing
+# all ~250 cities here.
+# ponytail: a short manual alias list, not a full geo-normalization library --
+# extend this dict if a new duplicate spelling shows up later.
+CITY_ALIASES = {
+    "bikaner": "Bikaner",
+    "newchandigarh": "New Chandigarh",
+    "muzzaffarnagar": "Muzaffarnagar",
+    "sri ganganagar": "Sri Ganganagar",
+    "sundar nagar": "Sundar Nagar",
+    "udaipur (rajasthan)": "Udaipur",
+    "kharagpur (west bengal)": "Kharagpur",
+    "bijapur (karnataka)": "Bijapur",
+    "aurangabad (maharashtra)": "Aurangabad",
+    "hamirpur (himachal pradesh)": "Hamirpur",
+    "nizamabad (telangana)": "Nizamabad",
+    "pali (rajasthan)": "Pali",
+    "bilaspur (chhattisgarh)": "Bilaspur",
+}
+
+# A few Q.Com Pending/In-Transit "Location" values are warehouse feeder hubs
+# for a metro, not demand cities in their own right -- roll those into the
+# metro so pipeline (IT/OO) lines up with where the DRR/stock is actually counted.
+FEEDER_TO_METRO = {
+    "faridabad": "Delhi NCR", "noida": "Delhi NCR", "kundli": "Delhi NCR",
+    "gurgaon": "Delhi NCR", "gurugram": "Delhi NCR", "ghaziabad": "Delhi NCR",
+    "bhiwandi": "Mumbai",
+}
 
 SKU_MASTER = [
     ("10160151", "AL - Ladder", "Advance 5 Step (Orange)"),
@@ -68,6 +73,33 @@ SKU_MASTER = [
     ("10163106", "Ironing Board", "X Press Ace"),
     ("10193824", "Stomo", "Taro Pearl White"),
 ]
+
+
+def normalize_city(raw):
+    """Clean up one city string: collapse separators/spacing, fold known
+    duplicate spellings into one canonical name via CITY_ALIASES."""
+    if not raw:
+        return None
+    s = " ".join(raw.replace("_", " ").split()).strip()
+    if not s:
+        return None
+    alias = CITY_ALIASES.get(s.lower())
+    return alias if alias else s
+
+
+def location_to_city(loc):
+    """Blinkit Pending/In-Transit 'Location' is a warehouse name like
+    'Hyderabad H3' or 'Rajpura R2' -- strip the trailing warehouse code,
+    roll known feeder hubs into their metro, otherwise use the place name
+    itself as the city."""
+    s = (loc or "").strip()
+    if not s or s == "#N/A":
+        return None
+    s = re.sub(r"\s+[A-Za-z]{1,2}\d{1,3}$", "", s).strip()  # drop " H3", " M12", etc.
+    if not s:
+        return None
+    metro = FEEDER_TO_METRO.get(s.lower())
+    return metro if metro else normalize_city(s)
 
 
 def parse_date(s):
@@ -92,21 +124,25 @@ def main():
     cutoff = max_date - timedelta(days=WINDOW_DAYS - 1)
 
     sales = defaultdict(int)
+    all_cities = set()
+    city_volume = defaultdict(int)  # for sorting cities by size in the output
     for r in rows:
         if len(r) <= idx["City_Name-Mapped"]:
             continue
         item_id = r[idx["Item ID"]].strip()
-        city = CITY_MAP.get(r[idx["City_Name-Mapped"]].strip())
+        city = normalize_city(r[idx["City_Name-Mapped"]].strip())
         if not city:
             continue
+        all_cities.add(city)
+        try:
+            qty_all_time = int(float(r[idx["qty_sold"]] or 0))
+        except ValueError:
+            qty_all_time = 0
+        city_volume[city] += qty_all_time
         d = parse_date(r[idx["date"]])
         if not d or d < cutoff:
             continue
-        try:
-            qty = int(float(r[idx["qty_sold"]] or 0))
-        except ValueError:
-            qty = 0
-        sales[(item_id, city)] += qty
+        sales[(item_id, city)] += qty_all_time
 
     print("Reading Blinkit inventory (stock)...")
     inv_ws = next(ws for ws in master.worksheets() if ws.title.startswith("Blinkit_Inventory"))
@@ -119,9 +155,10 @@ def main():
         if len(r) <= iidx["City Name_Mapped"]:
             continue
         item_id = r[iidx["item_id"]].strip()
-        city = CITY_MAP.get(r[iidx["City Name_Mapped"]].strip())
+        city = normalize_city(r[iidx["City Name_Mapped"]].strip())
         if not city:
             continue
+        all_cities.add(city)
         try:
             qty = int(float(r[iidx["Total Stock"]] or 0))
         except ValueError:
@@ -133,8 +170,8 @@ def main():
 
     def qty_by_item_city(ws_title, status_filter=None):
         """Sum Quantity Outstanding per (Item Code, City), matched from the
-        Location column. Rows whose Location doesn't match one of the 4
-        cities are skipped and counted separately for visibility."""
+        Location column. Only genuinely blank/#N/A rows are skipped now --
+        every resolvable location becomes its own tracked city."""
         ws = pending_book.worksheet(ws_title)
         vals = ws.get_all_values()
         h, rws = vals[0], vals[1:]
@@ -157,19 +194,25 @@ def main():
             if not city:
                 skipped_qty += qty
                 continue
+            all_cities.add(city)
             out[(item_id, city)] += qty
-        print(f"  {ws_title}: {skipped_qty} units in warehouses outside BLR/HYD/DEL/MUM, not counted")
+        print(f"  {ws_title}: {skipped_qty} units with no usable location, not counted")
         return out
 
     oo_qty = qty_by_item_city("Blinkit Pending", status_filter={"Active"})
     it_qty = qty_by_item_city("Blinkit - In Transit")
+
+    # Biggest cities first, alphabetical within same volume, so the sheet is
+    # useful to scan top-down instead of a random ~250-city jumble.
+    cities_sorted = sorted(all_cities, key=lambda c: (-city_volume.get(c, 0), c))
+    print(f"Tracking {len(cities_sorted)} cities (was hardcoded to 4 before).")
 
     # ---- build output rows ----
     # DOC is a live formula (Stock / DRR), not a python-computed value, so it stays
     # correct if DRR or Stock ever gets hand-edited in the sheet.
     refreshed_note = (
         f"Last refreshed: {datetime.now().strftime('%d-%b-%Y %H:%M')} | "
-        f"DRR window: last {WINDOW_DAYS} days | "
+        f"DRR window: last {WINDOW_DAYS} days | Cities: {len(cities_sorted)} | "
         f"Source: Blinkit_Raw, Blinkit_Inventory, Blinkit Pending, Blinkit - In Transit"
     )
     calc_rows = [
@@ -183,7 +226,7 @@ def main():
     ]
     row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
     for item_id, category, name in SKU_MASTER:
-        for city in CITIES:
+        for city in cities_sorted:
             row_num += 1
             units = sales.get((item_id, city), 0)
             drr = round(units / WINDOW_DAYS, 2)
@@ -203,7 +246,7 @@ def main():
     calc_ws.update(values=calc_rows, range_name="A1", value_input_option="USER_ENTERED")
     calc_ws.freeze(rows=2)
 
-    print(f"Done. Wrote {len(SKU_MASTER)} SKUs, {len(calc_rows) - 2} SKU x city rows.")
+    print(f"Done. Wrote {len(SKU_MASTER)} SKUs x {len(cities_sorted)} cities = {len(calc_rows) - 2} rows.")
 
 
 if __name__ == "__main__":
