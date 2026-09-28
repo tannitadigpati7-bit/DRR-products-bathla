@@ -20,6 +20,7 @@ QCOM_PENDING = "1LXrMlXDH1TB2uoBvA-G1sAh83mu4FrgYOdthyFyP_fE"
 TRACKER = "1JAyP6i4UmtlgfMTHD6FFe040iQGPnN1D6Oo9l35c5tg"
 
 WINDOW_DAYS = 7
+SIX_MONTHS_DAYS = 180  # a city with no sales AND no stock in this window is dropped entirely
 PLATFORM = "Blinkit"
 TRACK_TAB = f"{PLATFORM}_DRR_Track"
 
@@ -122,10 +123,12 @@ def main():
     dates = [d for d in dates if d]
     max_date = max(dates)
     cutoff = max_date - timedelta(days=WINDOW_DAYS - 1)
+    six_months_cutoff = max_date - timedelta(days=SIX_MONTHS_DAYS)
 
     sales = defaultdict(int)
     all_cities = set()
     city_volume = defaultdict(int)  # for sorting cities by size in the output
+    cities_with_recent_sales = set()  # any sale in the last 6 months
     for r in rows:
         if len(r) <= idx["City_Name-Mapped"]:
             continue
@@ -140,7 +143,11 @@ def main():
             qty_all_time = 0
         city_volume[city] += qty_all_time
         d = parse_date(r[idx["date"]])
-        if not d or d < cutoff:
+        if not d:
+            continue
+        if qty_all_time > 0 and d >= six_months_cutoff:
+            cities_with_recent_sales.add(city)
+        if d < cutoff:
             continue
         sales[(item_id, city)] += qty_all_time
 
@@ -151,6 +158,7 @@ def main():
     iidx = {h.strip(): i for i, h in enumerate(ih)}
 
     stock = defaultdict(int)
+    cities_with_stock = set()  # any current stock right now
     for r in irows:
         if len(r) <= iidx["City Name_Mapped"]:
             continue
@@ -163,7 +171,16 @@ def main():
             qty = int(float(r[iidx["Total Stock"]] or 0))
         except ValueError:
             qty = 0
+        if qty > 0:
+            cities_with_stock.add(city)
         stock[(item_id, city)] += qty
+
+    # Drop any city with zero sales in the last 6 months AND zero stock right
+    # now -- a dead city, not worth a row for every SKU.
+    active_cities = cities_with_recent_sales | cities_with_stock
+    dropped = all_cities - active_cities
+    all_cities = active_cities
+    print(f"  Dropping {len(dropped)} cities with no sales in {SIX_MONTHS_DAYS} days and no current stock.")
 
     print("Reading Q.Com Pending & In Transit...")
     pending_book = gc.open_by_key(QCOM_PENDING)
@@ -191,12 +208,13 @@ def main():
             if status_filter and r[ix.get("PO Status", -1)].strip() not in status_filter:
                 continue
             city = location_to_city(r[ix.get("Location", -1)] if ix.get("Location", -1) >= 0 else "")
-            if not city:
+            if not city or city not in all_cities:
+                # no usable location, or a city already dropped for having no
+                # recent sales/stock -- don't resurrect it just for a PO/transit row
                 skipped_qty += qty
                 continue
-            all_cities.add(city)
             out[(item_id, city)] += qty
-        print(f"  {ws_title}: {skipped_qty} units with no usable location, not counted")
+        print(f"  {ws_title}: {skipped_qty} units with no usable/active-city location, not counted")
         return out
 
     oo_qty = qty_by_item_city("Blinkit Pending", status_filter={"Active"})
