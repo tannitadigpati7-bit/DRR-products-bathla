@@ -249,7 +249,7 @@ def main():
     # stays pinned to whatever row count existed when it was first created,
     # and silently hides newer rows from the filter dropdowns.
     calc_ws.clear_basic_filter()
-    calc_ws.set_basic_filter()
+    calc_ws.set_basic_filter(name=f"A2:K{len(calc_rows)}")  # header is row 2, not row 1 (banner)
 
     print(f"Done. Wrote {len(SKU_MASTER)} SKUs x {len(cities_sorted)} cities = {len(calc_rows) - 2} rows.")
 
