@@ -129,6 +129,7 @@ def main():
     all_cities = set()
     city_volume = defaultdict(int)  # for sorting cities by size in the output
     cities_with_recent_sales = set()  # any sale in the last 6 months
+    last_sale_date = {}  # (item_id, city) -> most recent date with qty_sold > 0, ever
     for r in rows:
         if len(r) <= idx["City_Name-Mapped"]:
             continue
@@ -145,6 +146,10 @@ def main():
         d = parse_date(r[idx["date"]])
         if not d:
             continue
+        if qty_all_time > 0:
+            key = (item_id, city)
+            if key not in last_sale_date or d > last_sale_date[key]:
+                last_sale_date[key] = d
         if qty_all_time > 0 and d >= six_months_cutoff:
             cities_with_recent_sales.add(city)
         if d < cutoff:
@@ -238,23 +243,46 @@ def main():
         [
             "Item ID", "Category", "SKU", "City",
             f"DRR (units/day, last {WINDOW_DAYS}d)", "Stock",
-            f"DOC (days, based on last {WINDOW_DAYS}d DRR)",
+            "DOC",
             "In Transit", "Qty", "Open PO", "Qty",
         ],
     ]
     row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
+    skipped_dead_combos = 0
     for item_id, category, name in SKU_MASTER:
         for city in cities_sorted:
+            st = stock.get((item_id, city), 0)
+            last_sale = last_sale_date.get((item_id, city))
+            sold_recently = last_sale is not None and (max_date - last_sale).days < SIX_MONTHS_DAYS
+
+            # Skip this SKU in this city entirely if IT specifically has no
+            # recent sales and no current stock -- being sold in some OTHER
+            # city doesn't earn it a row everywhere.
+            if not sold_recently and st == 0:
+                skipped_dead_combos += 1
+                continue
+
             row_num += 1
             units = sales.get((item_id, city), 0)
             drr = round(units / WINDOW_DAYS, 2)
-            st = stock.get((item_id, city), 0)
-            doc_formula = f'=IF(E{row_num}=0, IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", 0), ROUND(F{row_num}/E{row_num}, 1))'
+
+            if last_sale is None:
+                dormant_text = "Never sold here"
+            else:
+                days_ago = (max_date - last_sale).days
+                dormant_text = f"No sales in {days_ago}d" if days_ago < 60 else f"No sales in ~{days_ago // 30}mo"
+
+            doc_formula = (
+                f'=IF(E{row_num}=0, '
+                f'IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", "{dormant_text}"), '
+                f'IF(F{row_num}=0, "0 - OUT OF STOCK", ROUND(F{row_num}/E{row_num}, 1)))'
+            )
             it_q = it_qty.get((item_id, city), 0)
             oo_q = oo_qty.get((item_id, city), 0)
             it_tick = "Y" if it_q > 0 else "N"
             oo_tick = "Y" if oo_q > 0 else "N"
             calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q])
+    print(f"  Skipped {skipped_dead_combos} SKU x city rows with no sales in {SIX_MONTHS_DAYS}d and no stock for that SKU specifically.")
 
     print("Writing Bathla_DRR_Tracker...")
     tracker = gc.open_by_key(TRACKER)
@@ -269,7 +297,7 @@ def main():
     calc_ws.clear_basic_filter()
     calc_ws.set_basic_filter(name=f"A2:K{len(calc_rows)}")  # header is row 2, not row 1 (banner)
 
-    print(f"Done. Wrote {len(SKU_MASTER)} SKUs x {len(cities_sorted)} cities = {len(calc_rows) - 2} rows.")
+    print(f"Done. Wrote {len(calc_rows) - 2} active SKU x city rows ({len(SKU_MASTER)} SKUs, {len(cities_sorted)} cities considered).")
 
 
 if __name__ == "__main__":
