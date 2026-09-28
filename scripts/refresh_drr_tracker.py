@@ -275,7 +275,7 @@ def main():
             doc_formula = (
                 f'=IF(E{row_num}=0, '
                 f'IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", "{dormant_text}"), '
-                f'IF(F{row_num}=0, "0 - OUT OF STOCK", ROUND(F{row_num}/E{row_num}, 1)))'
+                f'ROUND(F{row_num}/E{row_num}, 1))'
             )
             it_q = it_qty.get((item_id, city), 0)
             oo_q = oo_qty.get((item_id, city), 0)
