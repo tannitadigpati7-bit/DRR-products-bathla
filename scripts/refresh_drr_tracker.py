@@ -8,12 +8,16 @@ ever sold in. Change that list to change scope.
 Run manually for now: python scripts/refresh_drr_tracker.py
 Later: wire this into a scheduled trigger for daily auto-refresh.
 """
+import json
 import re
 import gspread
+from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta
 
 CREDS = "credentials.json"
+DASHBOARD_TEMPLATE = Path(__file__).parent.parent / "dashboard" / "template.html"
+DASHBOARD_OUTPUT = Path(__file__).parent.parent / "dashboard" / "index.html"
 QCOM_MASTER = "1GxVuEY7YTM1hFjEYp2bNizKLfa48P4FE-1IwO2rLhpM"
 QCOM_PENDING = "1LXrMlXDH1TB2uoBvA-G1sAh83mu4FrgYOdthyFyP_fE"
 TRACKER = "1JAyP6i4UmtlgfMTHD6FFe040iQGPnN1D6Oo9l35c5tg"
@@ -203,6 +207,7 @@ def main():
     ]
     row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
     skipped_dead_combos = 0
+    dashboard_rows = []  # same rows, JSON-friendly, for the dashboard
     for item_id, category, name in SKU_MASTER:
         for city in TARGET_CITIES:
             st = stock.get((item_id, city), 0)
@@ -235,6 +240,20 @@ def main():
             it_tick = "Y" if it_q > 0 else "N"
             oo_tick = "Y" if oo_q > 0 else "N"
             calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q])
+
+            # DOC as an actual value for the dashboard (the sheet gets a live
+            # formula instead, computed the same way).
+            if drr == 0:
+                doc_numeric, doc_label = None, ("No sales (last 7d)" if st > 0 else dormant_text)
+            else:
+                doc_numeric, doc_label = round(st / drr, 1), None
+            dashboard_rows.append({
+                "sku": name, "category": category, "city": city,
+                "drr": drr, "stock": st,
+                "doc_numeric": doc_numeric, "doc_label": doc_label,
+                "in_transit": it_tick, "it_qty": it_q,
+                "open_po": oo_tick, "oo_qty": oo_q,
+            })
     print(f"  Skipped {skipped_dead_combos} SKU x city rows with no sales in {SIX_MONTHS_DAYS}d and no stock.")
 
     print("Writing Bathla_DRR_Tracker...")
@@ -251,6 +270,18 @@ def main():
     calc_ws.set_basic_filter(name=f"A2:K{len(calc_rows)}")  # header is row 2, not row 1 (banner)
 
     print(f"Done. Wrote {len(calc_rows) - 2} active SKU x city rows across the 10 target cities.")
+
+    print("Writing dashboard/index.html...")
+    dashboard_data = {
+        "generated_at": datetime.now().strftime("%d-%b-%Y %H:%M"),
+        "window_days": WINDOW_DAYS,
+        "cities": TARGET_CITIES,
+        "rows": dashboard_rows,
+    }
+    template = DASHBOARD_TEMPLATE.read_text(encoding="utf-8")
+    page = template.replace("__DRR_DATA_JSON__", json.dumps(dashboard_data))
+    DASHBOARD_OUTPUT.write_text(page, encoding="utf-8")
+    print(f"  Wrote {DASHBOARD_OUTPUT}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Blinkit DRR Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --border: 214.3 31.8% 91.4%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --warning: 38 92% 50%;
+    --success: 142 71% 35%;
+    --radius: 0.5rem;
+  }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: hsl(var(--background)); color: hsl(var(--foreground)); }
+  .card { background: hsl(var(--card)); color: hsl(var(--card-foreground)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); }
+  .badge { display:inline-flex; align-items:center; gap:4px; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; line-height: 1.4; }
+  .badge-outline { border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); background: transparent; }
+  .badge-success { background: hsl(142 71% 95%); color: hsl(142 71% 28%); }
+  .badge-warning { background: hsl(38 92% 95%); color: hsl(32 95% 35%); }
+  .badge-destructive { background: hsl(0 72% 96%); color: hsl(0 72% 42%); }
+  .badge-muted { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+  table { border-collapse: separate; border-spacing: 0; }
+  thead th { position: sticky; top: 0; background: hsl(var(--muted)); z-index: 1; }
+  tbody tr:hover { background: hsl(var(--muted) / 0.5); }
+  tbody tr:not(:last-child) td { border-bottom: 1px solid hsl(var(--border)); }
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
+  input:focus, select:focus { outline: none; box-shadow: 0 0 0 2px hsl(var(--border)); }
+</style>
+</head>
+<body class="min-h-screen">
+  <div class="max-w-[1400px] mx-auto px-4 py-6 sm:px-6 lg:px-8">
+
+    <!-- Header -->
+    <div class="flex flex-col gap-1 mb-6">
+      <h1 class="text-2xl font-semibold tracking-tight">Blinkit DRR Dashboard</h1>
+      <p class="text-sm" style="color: hsl(var(--muted-foreground))" id="meta-line">Loading...</p>
+    </div>
+
+    <!-- Stat cards -->
+    <div id="stat-cards" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6"></div>
+
+    <!-- Controls -->
+    <div class="card p-3 mb-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+      <div class="relative flex-1">
+        <input id="search" type="text" placeholder="Search SKU or city..."
+          class="w-full text-sm rounded-md border px-3 py-2"
+          style="border-color: hsl(var(--border));" />
+      </div>
+      <select id="city-filter" class="text-sm rounded-md border px-3 py-2" style="border-color: hsl(var(--border));">
+        <option value="">All cities</option>
+      </select>
+      <select id="status-filter" class="text-sm rounded-md border px-3 py-2" style="border-color: hsl(var(--border));">
+        <option value="">All rows</option>
+        <option value="stockout">Stockouts (demand, 0 stock)</option>
+        <option value="low">Low cover (&lt; 15 days)</option>
+        <option value="dormant">Dormant (no recent sales)</option>
+      </select>
+    </div>
+
+    <!-- Table -->
+    <div class="card overflow-hidden">
+      <div class="overflow-x-auto max-h-[70vh]">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left" style="color: hsl(var(--muted-foreground));">
+              <th class="px-4 py-2.5 font-medium">SKU</th>
+              <th class="px-4 py-2.5 font-medium">Category</th>
+              <th class="px-4 py-2.5 font-medium">City</th>
+              <th class="px-4 py-2.5 font-medium text-right">DRR</th>
+              <th class="px-4 py-2.5 font-medium text-right">Stock</th>
+              <th class="px-4 py-2.5 font-medium">DOC</th>
+              <th class="px-4 py-2.5 font-medium">In Transit</th>
+              <th class="px-4 py-2.5 font-medium">Open PO</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="text-xs mt-4" style="color: hsl(var(--muted-foreground));">
+      Generated locally by <code>refresh_drr_tracker.py</code> &middot; data mirrors the <code>Blinkit_DRR_Track</code> tab &middot; re-run the script to refresh this page.
+    </p>
+  </div>
+
+<script id="drr-data" type="application/json">__DRR_DATA_JSON__</script>
+<script>
+  const DATA = JSON.parse(document.getElementById('drr-data').textContent);
+  const rows = DATA.rows;
+
+  document.getElementById('meta-line').textContent =
+    `Last refreshed ${DATA.generated_at} · DRR window: last ${DATA.window_days} days · ${DATA.cities.length} cities · ${rows.length} active SKU×city rows`;
+
+  // ---- stat cards ----
+  const stockouts = rows.filter(r => r.doc_numeric === 0 && r.drr > 0).length;
+  const lowCover = rows.filter(r => r.doc_numeric !== null && r.doc_numeric > 0 && r.doc_numeric < 15).length;
+  const dormant = rows.filter(r => r.doc_numeric === null).length;
+  const inTransitCount = rows.filter(r => r.it_qty > 0).length;
+  const openPoCount = rows.filter(r => r.oo_qty > 0).length;
+
+  const stats = [
+    { label: 'Active rows', value: rows.length, tone: 'muted' },
+    { label: 'Cities tracked', value: DATA.cities.length, tone: 'muted' },
+    { label: 'Stockouts', value: stockouts, tone: 'destructive', sub: 'demand, 0 stock' },
+    { label: 'Low cover', value: lowCover, tone: 'warning', sub: '< 15 days' },
+    { label: 'In transit', value: inTransitCount, tone: 'success', sub: 'rows with shipment' },
+    { label: 'Open PO', value: openPoCount, tone: 'success', sub: 'rows with order' },
+  ];
+  const toneBg = { destructive: 'badge-destructive', warning: 'badge-warning', success: 'badge-success', muted: 'badge-muted' };
+  document.getElementById('stat-cards').innerHTML = stats.map(s => `
+    <div class="card p-4">
+      <div class="text-2xl font-semibold tabular-nums">${s.value}</div>
+      <div class="text-xs mt-1" style="color: hsl(var(--muted-foreground));">${s.label}${s.sub ? ' · ' + s.sub : ''}</div>
+    </div>
+  `).join('');
+
+  // ---- filters ----
+  const citySel = document.getElementById('city-filter');
+  DATA.cities.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    citySel.appendChild(opt);
+  });
+
+  function docBadge(r) {
+    if (r.doc_numeric === null) {
+      return `<span class="badge badge-muted">${r.doc_label}</span>`;
+    }
+    if (r.doc_numeric === 0) {
+      return `<span class="badge badge-destructive">0 d</span>`;
+    }
+    if (r.doc_numeric < 15) {
+      return `<span class="badge badge-warning">${r.doc_numeric} d</span>`;
+    }
+    return `<span class="badge badge-success">${r.doc_numeric} d</span>`;
+  }
+
+  function pipelineBadge(tick, qty) {
+    if (tick === 'Y') return `<span class="badge badge-success">${qty}</span>`;
+    return `<span class="badge badge-outline">0</span>`;
+  }
+
+  function matchesStatus(r, status) {
+    if (!status) return true;
+    if (status === 'stockout') return r.doc_numeric === 0 && r.drr > 0;
+    if (status === 'low') return r.doc_numeric !== null && r.doc_numeric > 0 && r.doc_numeric < 15;
+    if (status === 'dormant') return r.doc_numeric === null;
+    return true;
+  }
+
+  function render() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    const city = citySel.value;
+    const status = document.getElementById('status-filter').value;
+
+    const filtered = rows.filter(r =>
+      (!q || r.sku.toLowerCase().includes(q) || r.city.toLowerCase().includes(q)) &&
+      (!city || r.city === city) &&
+      matchesStatus(r, status)
+    ).sort((a, b) => {
+      const av = a.doc_numeric === null ? Infinity : a.doc_numeric;
+      const bv = b.doc_numeric === null ? Infinity : b.doc_numeric;
+      return av - bv;
+    });
+
+    document.getElementById('table-body').innerHTML = filtered.map(r => `
+      <tr>
+        <td class="px-4 py-2.5 font-medium">${r.sku}</td>
+        <td class="px-4 py-2.5" style="color: hsl(var(--muted-foreground));">${r.category}</td>
+        <td class="px-4 py-2.5">${r.city}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums">${r.drr}</td>
+        <td class="px-4 py-2.5 text-right tabular-nums">${r.stock}</td>
+        <td class="px-4 py-2.5">${docBadge(r)}</td>
+        <td class="px-4 py-2.5">${pipelineBadge(r.in_transit, r.it_qty)}</td>
+        <td class="px-4 py-2.5">${pipelineBadge(r.open_po, r.oo_qty)}</td>
+      </tr>
+    `).join('') || `<tr><td colspan="8" class="px-4 py-8 text-center" style="color: hsl(var(--muted-foreground));">No rows match.</td></tr>`;
+  }
+
+  document.getElementById('search').addEventListener('input', render);
+  citySel.addEventListener('change', render);
+  document.getElementById('status-filter').addEventListener('change', render);
+  render();
+</script>
+</body>
+</html>
