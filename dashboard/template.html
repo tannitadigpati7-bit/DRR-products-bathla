@@ -35,6 +35,10 @@
   }
   .legend-dot { width: 10px; height: 10px; border-radius: 9999px; flex-shrink: 0; }
   .legend-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+  /* sequential-hue bar chart (magnitude comparison) -- one hue, thin mark, rounded data-end */
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 10px; padding: 5px 0; }
+  .bar-track { height: 10px; background: hsl(var(--muted)); border-radius: 9999px; overflow: hidden; }
+  .bar-fill { height: 100%; background: #2a78d6; border-radius: 9999px; }
   body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: hsl(var(--background)); color: hsl(var(--foreground)); }
   .card { background: hsl(var(--card)); color: hsl(var(--card-foreground)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); }
   .badge { display:inline-flex; align-items:center; gap:4px; border-radius: 9999px; padding: 2px 10px; font-size: 12px; font-weight: 600; line-height: 1.4; }
@@ -76,6 +80,20 @@
           </div>
         </div>
         <div id="donut-legend" class="flex-1 w-full text-sm"></div>
+      </div>
+    </div>
+
+    <!-- DRR magnitude bars -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <div class="card p-4">
+        <h2 class="text-sm font-semibold mb-1">Total DRR by city</h2>
+        <p class="text-xs mb-3" style="color: hsl(var(--muted-foreground));">units/day, summed across all SKUs, last 7d</p>
+        <div id="bars-city"></div>
+      </div>
+      <div class="card p-4">
+        <h2 class="text-sm font-semibold mb-1">Total DRR by category</h2>
+        <p class="text-xs mb-3" style="color: hsl(var(--muted-foreground));">units/day, summed across all cities, last 7d</p>
+        <div id="bars-category"></div>
       </div>
     </div>
 
@@ -189,6 +207,28 @@
       <span class="w-12 text-right tabular-nums" style="color: hsl(var(--muted-foreground));">${(100 * s.count / totalRows).toFixed(0)}%</span>
     </div>
   `).join('');
+
+  // ---- DRR magnitude bars (sequential: one hue, bar length = value) ----
+  function renderBars(containerId, totalsByKey) {
+    const entries = Object.entries(totalsByKey).sort((a, b) => b[1] - a[1]);
+    const max = entries.length ? entries[0][1] : 1;
+    document.getElementById(containerId).innerHTML = entries.map(([label, value]) => `
+      <div class="bar-row">
+        <span class="text-xs truncate" title="${label}">${label}</span>
+        <div class="bar-track"><div class="bar-fill" style="width: ${max ? (100 * value / max).toFixed(1) : 0}%;"></div></div>
+        <span class="text-xs text-right tabular-nums">${value.toFixed(1)}</span>
+      </div>
+    `).join('');
+  }
+
+  const drrByCity = {};
+  const drrByCategory = {};
+  rows.forEach(r => {
+    drrByCity[r.city] = (drrByCity[r.city] || 0) + r.drr;
+    drrByCategory[r.category] = (drrByCategory[r.category] || 0) + r.drr;
+  });
+  renderBars('bars-city', drrByCity);
+  renderBars('bars-category', drrByCategory);
 
   // ---- filters ----
   const citySel = document.getElementById('city-filter');
