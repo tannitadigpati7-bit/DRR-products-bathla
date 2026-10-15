@@ -138,7 +138,15 @@ def main():
     ih, irows = inv[0], inv[1:]
     iidx = {h.strip(): i for i, h in enumerate(ih)}
 
+    def inv_qty(r, col):
+        try:
+            return int(float(r[iidx[col]] or 0))
+        except ValueError:
+            return 0
+
     stock = defaultdict(int)
+    backend_inv = defaultdict(int)   # warehouse stock
+    frontend_inv = defaultdict(int)  # dark-store (shelf) stock
     for r in irows:
         if len(r) <= iidx["City Name_Mapped"]:
             continue
@@ -146,11 +154,9 @@ def main():
         if city not in target_set:
             continue
         item_id = r[iidx["item_id"]].strip()
-        try:
-            qty = int(float(r[iidx["Total Stock"]] or 0))
-        except ValueError:
-            qty = 0
-        stock[(item_id, city)] += qty
+        stock[(item_id, city)] += inv_qty(r, "Total Stock")
+        backend_inv[(item_id, city)] += inv_qty(r, "backend_inv_qty")
+        frontend_inv[(item_id, city)] += inv_qty(r, "frontend_inv_qty")
 
     print("Reading Q.Com Pending & In Transit...")
     pending_book = gc.open_by_key(QCOM_PENDING)
@@ -203,6 +209,9 @@ def main():
             f"DRR (units/day, last {WINDOW_DAYS}d)", "Stock",
             "DOC",
             "In Transit", "Qty", "Open PO", "Qty",
+            # appended at the end so the existing H:K columns (and the
+            # conditional formatting on them) stay exactly where they were
+            "Backend Inv", "Frontend Inv",
         ],
     ]
     row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
@@ -239,7 +248,10 @@ def main():
             oo_q = oo_qty.get((item_id, city), 0)
             it_tick = "Y" if it_q > 0 else "N"
             oo_tick = "Y" if oo_q > 0 else "N"
-            calc_rows.append([item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q])
+            calc_rows.append([
+                item_id, category, name, city, drr, st, doc_formula, it_tick, it_q, oo_tick, oo_q,
+                backend_inv.get((item_id, city), 0), frontend_inv.get((item_id, city), 0),
+            ])
 
             # DOC as an actual value for the dashboard (the sheet gets a live
             # formula instead, computed the same way).
@@ -267,7 +279,7 @@ def main():
     # stays pinned to whatever row count existed when it was first created,
     # and silently hides newer rows from the filter dropdowns.
     calc_ws.clear_basic_filter()
-    calc_ws.set_basic_filter(name=f"A2:K{len(calc_rows)}")  # header is row 2, not row 1 (banner)
+    calc_ws.set_basic_filter(name=f"A2:M{len(calc_rows)}")  # header is row 2, not row 1 (banner)
 
     print(f"Done. Wrote {len(calc_rows) - 2} active SKU x city rows across the 10 target cities.")
 

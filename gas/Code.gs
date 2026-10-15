@@ -133,14 +133,17 @@ function refreshBlinkitDRR() {
   ih.forEach(function (h, i) { iidx[h] = i; });
 
   var stock = {};
+  var backendInv = {};  // warehouse stock
+  var frontendInv = {}; // dark-store (shelf) stock
   for (var r = 1; r < invValues.length; r++) {
     var row = invValues[r];
     var city = normalizeCity_(row[iidx['City Name_Mapped']]);
     if (!city || !targetSet[city]) continue;
     var itemId = String(row[iidx['item_id']]).trim();
-    var qty = parseFloat(row[iidx['Total Stock']]) || 0;
     var key = itemId + '|' + city;
-    stock[key] = (stock[key] || 0) + qty;
+    stock[key] = (stock[key] || 0) + (parseFloat(row[iidx['Total Stock']]) || 0);
+    backendInv[key] = (backendInv[key] || 0) + (parseFloat(row[iidx['backend_inv_qty']]) || 0);
+    frontendInv[key] = (frontendInv[key] || 0) + (parseFloat(row[iidx['frontend_inv_qty']]) || 0);
   }
 
   // ---- pending / in-transit ----
@@ -182,6 +185,9 @@ function refreshBlinkitDRR() {
     'Item ID', 'Category', 'SKU', 'City',
     'DRR (units/day, last ' + WINDOW_DAYS + 'd)', 'Stock',
     'DOC', 'In Transit', 'Qty', 'Open PO', 'Qty',
+    // appended at the end so the existing H:K columns (and their
+    // conditional formatting) stay exactly where they were
+    'Backend Inv', 'Frontend Inv',
   ];
   var calcRows = [];
   var rowNum = 2; // row 1 = banner, row 2 = header, data starts at row 3
@@ -212,7 +218,8 @@ function refreshBlinkitDRR() {
       var docFormula = '=IF(E' + rowNum + '=0, IF(F' + rowNum + '>0, "No sales (last ' + WINDOW_DAYS + 'd)", "' + dormantText + '"), ROUND(F' + rowNum + '/E' + rowNum + ', 1))';
       var itQ = itQty[key] || 0;
       var ooQ = ooQty[key] || 0;
-      calcRows.push([itemId, category, name, city, drr, st, docFormula, itQ > 0 ? 'Y' : 'N', itQ, ooQ > 0 ? 'Y' : 'N', ooQ]);
+      calcRows.push([itemId, category, name, city, drr, st, docFormula, itQ > 0 ? 'Y' : 'N', itQ, ooQ > 0 ? 'Y' : 'N', ooQ,
+        backendInv[key] || 0, frontendInv[key] || 0]);
     });
   });
 
