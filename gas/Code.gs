@@ -13,6 +13,14 @@
  *      under your own Google account, the same one that owns this sheet).
  *   4. That's it -- it now refreshes itself daily at 7am, no laptop needed.
  *      A "DRR Tracker" menu also appears on the sheet with "Refresh now".
+ *
+ * Optional: live web dashboard (always shows whatever is currently in
+ * Blinkit_DRR_Track, unlike dashboard/index.html which is a static snapshot
+ * from the last Python run). Also paste gas/Dashboard.html into the Apps
+ * Script project as a new HTML file named exactly "Dashboard", then:
+ *   Deploy > New deployment > type "Web app" > execute as "Me" > access
+ *   "Anyone with the link" > Deploy. Open the URL it gives you.
+ * Re-deploying after an edit needs "Manage deployments > Edit > New version".
  */
 
 var QCOM_MASTER_ID = '1GxVuEY7YTM1hFjEYp2bNizKLfa48P4FE-1IwO2rLhpM';
@@ -264,4 +272,56 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('DRR Tracker')
     .addItem('Refresh now', 'refreshBlinkitDRR')
     .addToUi();
+}
+
+/**
+ * Live web dashboard. Deploy once: Deploy > New deployment > type "Web app",
+ * execute as "Me", access "Anyone with the link". Reads Blinkit_DRR_Track
+ * directly on every page load, so it always reflects whichever refresh
+ * (laptop or this trigger) ran most recently -- unlike dashboard/index.html,
+ * which is a static snapshot from the last time the Python script ran.
+ */
+function doGet(e) {
+  var html = HtmlService.createHtmlOutputFromFile('Dashboard').getContent();
+  html = html.replace('__DRR_DATA_JSON__', JSON.stringify(buildDashboardData_()));
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('Bathla DRR Dashboard')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function buildDashboardData_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TRACK_TAB);
+  var values = sh.getDataRange().getValues();
+
+  var generatedAt = '';
+  var m = /Last refreshed:\s*([^|]+)/.exec(values[0] && values[0][0]);
+  if (m) generatedAt = m[1].trim();
+
+  var rows = [];
+  for (var i = 2; i < values.length; i++) {
+    var r = values[i];
+    if (!r[0]) continue; // blank row
+    var docVal = r[6];
+    var docNumeric = null, docLabel = null;
+    if (typeof docVal === 'number') {
+      docNumeric = docVal;
+    } else {
+      docLabel = String(docVal);
+    }
+    rows.push({
+      sku: r[2], category: r[1], city: r[3],
+      drr: r[4], stock: r[5],
+      doc_numeric: docNumeric, doc_label: docLabel,
+      in_transit: r[7], it_qty: r[8],
+      open_po: r[9], oo_qty: r[10],
+    });
+  }
+
+  return {
+    generated_at: generatedAt,
+    window_days: WINDOW_DAYS,
+    cities: TARGET_CITIES,
+    rows: rows,
+  };
 }

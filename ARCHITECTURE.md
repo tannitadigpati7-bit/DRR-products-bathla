@@ -67,6 +67,11 @@ Advance 4 Step ...
 6. How Blinkit outlets or warehouses roll up into BLR, HYD, DEL, MUM.
 7. DRR window: 7 days, 30 days, or both.
 
+A live-feed dashboard now exists: `gas/Dashboard.html` + `doGet()` in `gas/Code.gs`, deployed as an
+Apps Script web app. It reads `Blinkit_DRR_Track` directly on every page load, so it's never stale,
+unlike the static `dashboard/index.html` the Python script writes. See the setup comment at the top
+of `gas/Code.gs` for the one-time deploy steps.
+
 ## Rules
 
 - Raw data files (`*.csv`, `*.xlsx`) and `.env` are gitignored so sales and stock data is not published.
