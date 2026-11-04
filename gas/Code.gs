@@ -21,6 +21,7 @@ var TRACK_TAB = 'Blinkit_DRR_Track';
 
 var WINDOW_DAYS = 7;
 var SIX_MONTHS_DAYS = 180; // a SKU with no sales AND no stock in this window is dropped for that city
+var LOW_SALES_DRR = 0.2; // below this (under ~1-2 units/week), DOC shows "Low sales" instead of a misleading huge number
 
 // Exactly these 10 -- in this order (biggest metros, as given).
 var TARGET_CITIES = [
@@ -215,7 +216,7 @@ function refreshBlinkitDRR() {
         dormantText = daysAgo < 60 ? ('No sales in ' + daysAgo + 'd') : ('No sales in ~' + Math.floor(daysAgo / 30) + 'mo');
       }
 
-      var docFormula = '=IF(E' + rowNum + '=0, IF(F' + rowNum + '>0, "No sales (last ' + WINDOW_DAYS + 'd)", "' + dormantText + '"), ROUND(F' + rowNum + '/E' + rowNum + ', 1))';
+      var docFormula = '=IF(E' + rowNum + '=0, IF(F' + rowNum + '>0, "No sales (last ' + WINDOW_DAYS + 'd)", "' + dormantText + '"), IF(E' + rowNum + '<' + LOW_SALES_DRR + ', "Low sales ("&E' + rowNum + '&"/d)", ROUND(F' + rowNum + '/E' + rowNum + ', 1)))';
       var itQ = itQty[key] || 0;
       var ooQ = ooQty[key] || 0;
       calcRows.push([itemId, category, name, city, drr, st, docFormula, itQ > 0 ? 'Y' : 'N', itQ, ooQ > 0 ? 'Y' : 'N', ooQ,

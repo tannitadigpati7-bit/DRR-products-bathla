@@ -24,6 +24,7 @@ TRACKER = "1JAyP6i4UmtlgfMTHD6FFe040iQGPnN1D6Oo9l35c5tg"
 
 WINDOW_DAYS = 7
 SIX_MONTHS_DAYS = 180  # a SKU with no sales AND no stock in this window is dropped for that city
+LOW_SALES_DRR = 0.2  # below this (under ~1-2 units/week), DOC shows "Low sales" instead of a misleading huge number
 PLATFORM = "Blinkit"
 TRACK_TAB = f"{PLATFORM}_DRR_Track"
 
@@ -242,7 +243,8 @@ def main():
             doc_formula = (
                 f'=IF(E{row_num}=0, '
                 f'IF(F{row_num}>0, "No sales (last {WINDOW_DAYS}d)", "{dormant_text}"), '
-                f'ROUND(F{row_num}/E{row_num}, 1))'
+                f'IF(E{row_num}<{LOW_SALES_DRR}, "Low sales ("&E{row_num}&"/d)", '
+                f'ROUND(F{row_num}/E{row_num}, 1)))'
             )
             it_q = it_qty.get((item_id, city), 0)
             oo_q = oo_qty.get((item_id, city), 0)
@@ -257,6 +259,8 @@ def main():
             # formula instead, computed the same way).
             if drr == 0:
                 doc_numeric, doc_label = None, ("No sales (last 7d)" if st > 0 else dormant_text)
+            elif drr < LOW_SALES_DRR:
+                doc_numeric, doc_label = None, f"Low sales ({drr}/d)"
             else:
                 doc_numeric, doc_label = round(st / drr, 1), None
             dashboard_rows.append({
