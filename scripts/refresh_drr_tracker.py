@@ -109,6 +109,12 @@ def main():
     max_date = max(dates)
     cutoff = max_date - timedelta(days=WINDOW_DAYS - 1)
 
+    # Identity text (Simple Name / Category) for each Item ID, read live from
+    # Blinkit_Raw's own "Simple Name" / "Catagory" columns -- not hardcoded --
+    # so it tracks whatever Blinkit_Raw currently says, not a string that can
+    # go stale. Falls back to SKU_MASTER below for an item ID with no rows yet.
+    sku_identity = {}
+
     sales = defaultdict(int)
     last_sale_date = {}  # (item_id, city) -> most recent date with qty_sold > 0, ever
     for r in rows:
@@ -118,6 +124,11 @@ def main():
         if city not in target_set:
             continue
         item_id = r[idx["Item ID"]].strip()
+        if item_id not in sku_identity:
+            simple_name = r[idx["Simple Name"]].strip() if len(r) > idx["Simple Name"] else ""
+            category = r[idx["Catagory"]].strip() if len(r) > idx["Catagory"] else ""
+            if simple_name and category:
+                sku_identity[item_id] = (category, simple_name)
         try:
             qty_all_time = int(float(r[idx["qty_sold"]] or 0))
         except ValueError:
@@ -218,7 +229,8 @@ def main():
     row_num = 2  # row 1 = refresh banner, row 2 = header, data starts at row 3
     skipped_dead_combos = 0
     dashboard_rows = []  # same rows, JSON-friendly, for the dashboard
-    for item_id, category, name in SKU_MASTER:
+    for item_id, fallback_category, fallback_name in SKU_MASTER:
+        category, name = sku_identity.get(item_id, (fallback_category, fallback_name))
         for city in TARGET_CITIES:
             st = stock.get((item_id, city), 0)
             last_sale = last_sale_date.get((item_id, city))

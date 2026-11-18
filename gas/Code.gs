@@ -115,6 +115,12 @@ function refreshBlinkitDRR() {
   var cutoff = new Date(maxDate);
   cutoff.setDate(cutoff.getDate() - (WINDOW_DAYS - 1));
 
+  // Identity text (Simple Name / Catagory) per Item ID, read live from
+  // Blinkit_Raw's own columns -- not hardcoded -- so it tracks whatever
+  // Blinkit_Raw currently says. Falls back to SKU_MASTER below for an
+  // item ID with no rows yet.
+  var skuIdentity = {};
+
   var sales = {}; // "itemId|city" -> units in the last WINDOW_DAYS
   var lastSaleDate = {}; // "itemId|city" -> most recent Date with qty_sold > 0, ever
   for (var r = 1; r < rawValues.length; r++) {
@@ -122,6 +128,11 @@ function refreshBlinkitDRR() {
     var city = normalizeCity_(row[idx['City_Name-Mapped']]);
     if (!city || !targetSet[city]) continue;
     var itemId = String(row[idx['Item ID']]).trim();
+    if (!skuIdentity[itemId]) {
+      var simpleName = String(row[idx['Simple Name']] || '').trim();
+      var category = String(row[idx['Catagory']] || '').trim();
+      if (simpleName && category) skuIdentity[itemId] = [category, simpleName];
+    }
     var qty = parseFloat(row[idx['qty_sold']]) || 0;
     var d = parseDate_(row[idx['date']]);
     if (!d) continue;
@@ -203,7 +214,9 @@ function refreshBlinkitDRR() {
   var skippedDead = 0;
 
   SKU_MASTER.forEach(function (sku) {
-    var itemId = sku[0], category = sku[1], name = sku[2];
+    var itemId = sku[0];
+    var identity = skuIdentity[itemId] || [sku[1], sku[2]];
+    var category = identity[0], name = identity[1];
     TARGET_CITIES.forEach(function (city) {
       var key = itemId + '|' + city;
       var st = stock[key] || 0;
