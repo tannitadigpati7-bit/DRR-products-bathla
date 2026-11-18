@@ -109,10 +109,12 @@ def main():
     max_date = max(dates)
     cutoff = max_date - timedelta(days=WINDOW_DAYS - 1)
 
-    # Identity text (Simple Name / Category) for each Item ID, read live from
-    # Blinkit_Raw's own "Simple Name" / "Catagory" columns -- not hardcoded --
-    # so it tracks whatever Blinkit_Raw currently says, not a string that can
-    # go stale. Falls back to SKU_MASTER below for an item ID with no rows yet.
+    # Identity text (Simple Name / Catagory / Sub- Cat) for each Item ID, read
+    # live from Blinkit_Raw's own columns R / S / T -- not hardcoded -- so it
+    # tracks whatever Blinkit_Raw currently says, not a string that can go
+    # stale. Falls back to SKU_MASTER below for an item ID with no rows yet.
+    # Sub Category isn't written to the tracker (no column for it there) --
+    # captured here in case that's wanted later.
     sku_identity = {}
 
     sales = defaultdict(int)
@@ -127,8 +129,9 @@ def main():
         if item_id not in sku_identity:
             simple_name = r[idx["Simple Name"]].strip() if len(r) > idx["Simple Name"] else ""
             category = r[idx["Catagory"]].strip() if len(r) > idx["Catagory"] else ""
+            sub_category = r[idx["Sub- Cat"]].strip() if len(r) > idx["Sub- Cat"] else ""
             if simple_name and category:
-                sku_identity[item_id] = (category, simple_name)
+                sku_identity[item_id] = (category, simple_name, sub_category)
         try:
             qty_all_time = int(float(r[idx["qty_sold"]] or 0))
         except ValueError:
@@ -230,7 +233,7 @@ def main():
     skipped_dead_combos = 0
     dashboard_rows = []  # same rows, JSON-friendly, for the dashboard
     for item_id, fallback_category, fallback_name in SKU_MASTER:
-        category, name = sku_identity.get(item_id, (fallback_category, fallback_name))
+        category, name, sub_category = sku_identity.get(item_id, (fallback_category, fallback_name, ""))
         for city in TARGET_CITIES:
             st = stock.get((item_id, city), 0)
             last_sale = last_sale_date.get((item_id, city))

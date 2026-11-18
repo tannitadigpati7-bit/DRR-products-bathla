@@ -115,10 +115,11 @@ function refreshBlinkitDRR() {
   var cutoff = new Date(maxDate);
   cutoff.setDate(cutoff.getDate() - (WINDOW_DAYS - 1));
 
-  // Identity text (Simple Name / Catagory) per Item ID, read live from
-  // Blinkit_Raw's own columns -- not hardcoded -- so it tracks whatever
-  // Blinkit_Raw currently says. Falls back to SKU_MASTER below for an
-  // item ID with no rows yet.
+  // Identity text (Simple Name / Catagory / Sub- Cat) per Item ID, read live
+  // from Blinkit_Raw's own columns R / S / T -- not hardcoded -- so it tracks
+  // whatever Blinkit_Raw currently says. Falls back to SKU_MASTER below for
+  // an item ID with no rows yet. Sub Category isn't written to the tracker
+  // (no column for it there) -- captured here in case that's wanted later.
   var skuIdentity = {};
 
   var sales = {}; // "itemId|city" -> units in the last WINDOW_DAYS
@@ -131,7 +132,8 @@ function refreshBlinkitDRR() {
     if (!skuIdentity[itemId]) {
       var simpleName = String(row[idx['Simple Name']] || '').trim();
       var category = String(row[idx['Catagory']] || '').trim();
-      if (simpleName && category) skuIdentity[itemId] = [category, simpleName];
+      var subCategory = String(row[idx['Sub- Cat']] || '').trim();
+      if (simpleName && category) skuIdentity[itemId] = [category, simpleName, subCategory];
     }
     var qty = parseFloat(row[idx['qty_sold']]) || 0;
     var d = parseDate_(row[idx['date']]);
